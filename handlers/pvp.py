@@ -1,42 +1,78 @@
-import random
 from aiogram import Router, types
-from db import get_user, add_gold, update_user
+import random
+import aiosqlite
+from db import get_user, update_user, add_gold, DB_NAME
 
 router = Router()
 
 @router.message(lambda msg: msg.text == "⚔️ Атака")
-async def info(msg: types.Message):
-    await msg.answer("Ответь на сообщение игрока с этой кнопкой")
+async def pvp(msg: types.Message):
+    user_id = msg.from_user.id
+    user = await get_user(user_id)
 
-@router.message(lambda msg: msg.reply_to_message)
-async def attack(msg: types.Message):
-    attacker_id = msg.from_user.id
-    target_id = msg.reply_to_message.from_user.id
-
-    attacker = await get_user(attacker_id)
-    target = await get_user(target_id)
-
-    if not target:
-        await msg.answer("Игрок не найден")
+    if not user:
+        await msg.answer("❌ Напиши /start")
         return
 
-    # ⚔️ атака
-    base_attack = attacker[2]
-    bonus = attacker["equipped_power"]  # ⚠️ правильный индекс
-    total_attack = base_attack + bonus
+    # 🔍 ищем случайного игрока
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            "SELECT * FROM users WHERE user_id != ? ORDER BY RANDOM() LIMIT 1",
+            (user_id,)
+        )
+        target = await cursor.fetchone()
 
-    damage = random.randint(total_attack // 2, total_attack)
+    if not target:
+        await msg.answer("❌ Нет игроков для PvP")
+        return
 
-    # ✅ ПОБЕДА
-    if damage > target[3] // 2:
-        reward = 20
-        await add_gold(attacker_id, reward)
+    # 🧠 преобразуем в dict
+    target = dict(target)
 
-        # 🏆 счётчик PvP
-        await update_user(attacker_id, "pvp_wins", attacker[13] + 1)
+    # ⚔️ расчёт урона
+    player_attack = user["attack"] + user["equipped_power"]
+    enemy_attack = target["attack"] + target["equipped_power"]
 
-        await msg.answer(f"⚔️ Победа! +{reward} золота")
+    player_damage = random.randint(player_attack - 2, player_attack + 2)
+    enemy_damage = random.randint(enemy_attack - 2, enemy_attack + 2)
 
-    # ❌ ПОРАЖЕНИЕ
+    # ❤️ HP
+    player_hp = user["hp_current"]
+    enemy_hp = target["hp_current"]
+
+    enemy_hp -= player_damage
+    player_hp -= enemy_damage
+
+    # 🧾 результат боя
+    if player_hp > enemy_hp:
+        winner = "player"
     else:
-        await msg.answer("❌ Поражение")
+        winner = "enemy"
+
+    # 💰 награда / штраф
+    if winner == "player":
+        reward = random.randint(10, 30)
+        await add_gold(user_id, reward)
+        await update_user(user_id, "pvp_wins", user["pvp_wins"] + 1)
+
+        text = (
+            f"⚔️ Ты победил!\n"
+            f"💥 Урон: {player_damage}\n"
+            f"❤️ Осталось HP: {player_hp}\n"
+            f"💰 Получено: {reward} золота"
+        )
+    else:
+        loss = random.randint(5, 15)
+        await add_gold(user_id, -loss)
+
+        text = (
+            f"💀 Ты проиграл!\n"
+            f"💥 Враг ударил: {enemy_damage}\n"
+            f"❤️ Осталось HP: {player_hp}\n"
+            f"💸 Потеряно: {loss} золота"
+        )
+
+    # 💾 сохраняем HP
+    await update_user(user_id, "hp_current", max(player_hp, 0))
+
+    await msg.answer(text)
