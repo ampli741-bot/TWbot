@@ -16,11 +16,13 @@ async def pvp(msg: types.Message):
 
     # 🔍 ищем случайного игрока
     async with aiosqlite.connect(DB_NAME) as db:
-        cursor = await db.execute(
-            "SELECT * FROM users WHERE user_id != ? ORDER BY RANDOM() LIMIT 1",
-            (user_id,)
-        )
-        target = await cursor.fetchone()
+    db.row_factory = aiosqlite.Row
+
+    cursor = await db.execute(
+        "SELECT * FROM users WHERE user_id != ? ORDER BY RANDOM() LIMIT 1",
+        (user_id,)
+    )
+    target = await cursor.fetchone()
 
     if not target:
         await msg.answer("❌ Нет игроков для PvP")
