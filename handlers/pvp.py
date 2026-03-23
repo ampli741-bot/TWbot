@@ -5,7 +5,7 @@ from db import get_user, update_user, add_gold, DB_NAME
 
 router = Router()
 
-@router.message(lambda msg: msg.text == "⚔️ Атака")
+@router.message(lambda msg: "Атака" in msg.text)
 async def pvp(msg: types.Message):
     user_id = msg.from_user.id
     user = await get_user(user_id)
